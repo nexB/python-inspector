@@ -15,6 +15,7 @@ from typing import NamedTuple
 from typing import Sequence
 from zipfile import ZipFile
 
+import click
 import packaging.requirements
 import packaging.utils
 import packaging.version
@@ -277,18 +278,23 @@ class PythonInputProvider(AbstractProvider):
 
                     dep_purl = PackageURL.from_string(dep.purl)
 
-                    if self.is_dep_resolved_and_in_resolved_requirements(dep, dep_purl):
+                    dep_purl_name = packaging.utils.canonicalize_name(dep_purl.name)
+
+                    if self.is_dep_resolved_and_in_resolved_requirements(dep, dep_purl_name):
+                        yield packaging.requirements.Requirement(
+                            f"{str(dep_purl_name)}{str(self.resolved_requirements[str(dep_purl_name)])}"
+                        )
                         continue
 
                     if dep.is_resolved:
-                        self.resolved_requirements.append(dep_purl)
+                        self.resolved_requirements[dep_purl_name] = f"=={dep_purl.version}"
                     # skip the requirement starting with -- like
                     # --editable, --requirement
-                    if not dep.extracted_requirement.startswith("--"):
+                    if not dep.extracted_requirement.startswith("-"):
                         yield packaging.requirements.Requirement(str(dep.extracted_requirement))
 
-    def is_dep_resolved_and_in_resolved_requirements(self, dep, dep_purl):
-        return dep.is_resolved and dep_purl.name in self.resolved_requirements
+    def is_dep_resolved_and_in_resolved_requirements(self, dep, dep_purl_name):
+        return dep.is_resolved and dep_purl_name in self.resolved_requirements
 
     def get_requirements_for_package_from_pypi_json_api(self, purl):
         """
@@ -501,12 +507,45 @@ def format_resolution(results, environment, repos, as_tree=False):
         return dependencies
 
 
+def pdt_dfs(mapping, graph, src):
+    """
+    Return a nested mapping of dependencies.
+    """
+    children = list(graph.iter_children(src))
+    if not children:
+        return dict(
+            key=src, package_name=src, installed_version=str(mapping[src].version), dependencies=[]
+        )
+
+    return dict(
+        key=src,
+        package_name=src,
+        installed_version=str(mapping[src].version),
+        dependencies=sorted([pdt_dfs(mapping, graph, c) for c in children], key=lambda d: d["key"]),
+    )
+
+
+def format_pdt_tree(results):
+    """
+    Return a formatted tree of dependencies.
+    """
+    mapping = results.mapping
+    graph = results.graph
+    dependencies = []
+    for src in get_all_srcs(mapping=mapping, graph=graph):
+        dependencies.append(pdt_dfs(mapping=mapping, graph=graph, src=src))
+    dependencies.sort(key=lambda d: d["key"])
+    return dependencies
+
+
 def get_resolved_dependencies(
     requirements: List[Requirement],
     environment: utils_pypi.Environment = None,
     repos: Sequence[utils_pypi.PypiSimpleRepository] = tuple(),
     as_tree: bool = False,
     max_rounds: int = 200000,
+    debug: bool = False,
+    pdt_output: bool = False,
 ):
     """
     Return resolved dependencies of a ``requirements`` list of Requirement for
@@ -516,17 +555,25 @@ def get_resolved_dependencies(
     Used the provided ``repos`` list of PypiSimpleRepository.
     If empty, use instead the PyPI.org JSON API exclusively instead
     """
-    resolved_requirements = [
-        packaging.utils.canonicalize_name(r.name)
-        for r in requirements
-        if getattr(r, "is_requirement_resolved", False)
-    ]
-    resolver = Resolver(
-        provider=PythonInputProvider(
-            environment=environment, repos=repos, resolved_requirements=resolved_requirements
-        ),
-        reporter=BaseReporter(),
-    )
-    results = resolver.resolve(requirements=requirements, max_rounds=max_rounds)
-    results = format_resolution(results, as_tree=as_tree, environment=environment, repos=repos)
-    return results
+    try:
+        resolved_requirements = {
+            packaging.utils.canonicalize_name(r.name): r.specifier
+            for r in requirements
+            if getattr(r, "is_requirement_resolved", False)
+        }
+        resolver = Resolver(
+            provider=PythonInputProvider(
+                environment=environment, repos=repos, resolved_requirements=resolved_requirements
+            ),
+            reporter=BaseReporter(),
+        )
+        resolver_results = resolver.resolve(requirements=requirements, max_rounds=max_rounds)
+        if pdt_output:
+            return format_pdt_tree(resolver_results)
+        return format_resolution(
+            resolver_results, as_tree=as_tree, environment=environment, repos=repos
+        )
+    except Exception as e:
+        if debug:
+            click.secho(f"{e!r}", err=True)
+        return None
