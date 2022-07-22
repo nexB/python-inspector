@@ -158,8 +158,8 @@ def resolve_dependencies(
 
         dad --spec "flask==2.1.2" --json -
     """
-
-    click.secho(f"Resolving dependencies...")
+    if debug:
+        click.secho(f"Resolving dependencies...")
 
     netrc = None
     if netrc_file:
@@ -181,7 +181,8 @@ def resolve_dependencies(
         direct_dependencies.append(dep)
 
     if not direct_dependencies:
-        click.secho("Error: no requirements requested.")
+        if debug:
+            click.secho("Error: no requirements requested.")
         sys.exit(1)
 
     if debug:
@@ -232,6 +233,7 @@ def resolve_dependencies(
         repos=repos,
         as_tree=False,
         max_rounds=max_rounds,
+        debug=debug,
     )
 
     cli_options = [f"--requirement {rf}" for rf in requirement_files]
@@ -268,7 +270,9 @@ def resolve_dependencies(
         click.secho("done!")
 
 
-def resolve(direct_dependencies, environment, repos=tuple(), as_tree=False, max_rounds=200000):
+def resolve(
+    direct_dependencies, environment, repos=tuple(), as_tree=False, max_rounds=200000, debug=False
+):
     """
     Resolve dependencies given a ``direct_dependencies`` list of
     DependentPackage and return a tuple of (initial_requirements,
@@ -281,6 +285,7 @@ def resolve(direct_dependencies, environment, repos=tuple(), as_tree=False, max_
 
     for dependency in direct_dependencies:
         # FIXME We are skipping editable requirements for now
+        # https://github.com/nexB/python-inspector/issues/41
         if dependency.extra_data.get("is_editable"):
             continue
         requirement = Requirement(requirement_string=dependency.extracted_requirement)
@@ -293,6 +298,7 @@ def resolve(direct_dependencies, environment, repos=tuple(), as_tree=False, max_
         repos=repos,
         as_tree=as_tree,
         max_rounds=max_rounds,
+        debug=debug,
     )
 
     initial_requirements = [d.to_dict() for d in direct_dependencies]
