@@ -286,7 +286,7 @@ def resolve_dependencies(
         analyze_setup_py_insecurely=analyze_setup_py_insecurely,
         ignore_errors=ignore_errors,
         verbose=verbose,
-        printer=printer
+        printer=printer,
     )
 
     async def gather_pypi_data():
@@ -330,7 +330,7 @@ def resolve(
     analyze_setup_py_insecurely: bool = False,
     ignore_errors: bool = False,
     verbose: bool = False,
-    printer=print
+    printer=print,
 ):
     """
     Resolve dependencies given a ``direct_dependencies`` list of
@@ -358,7 +358,7 @@ def resolve(
         analyze_setup_py_insecurely=analyze_setup_py_insecurely,
         ignore_errors=ignore_errors,
         verbose=verbose,
-        printer=printer
+        printer=printer,
     )
 
     return resolved_dependencies, packages
@@ -374,7 +374,7 @@ def get_resolved_dependencies(
     analyze_setup_py_insecurely: bool = False,
     ignore_errors: bool = False,
     verbose: bool = False,
-    printer=print
+    printer=print,
 ) -> Tuple[List[Dict], List[str]]:
     """
     Return resolved dependencies of a ``requirements`` list of Requirement for
@@ -405,7 +405,9 @@ def get_resolved_dependencies(
         if verbose:
             printer(f"versions:")
 
-        return await asyncio.gather(*[get_version_data(requirement.name) for requirement in requirements])
+        return await asyncio.gather(
+            *[get_version_data(requirement.name) for requirement in requirements]
+        )
 
     asyncio.run(gather_version_data())
 
@@ -427,7 +429,9 @@ def get_resolved_dependencies(
         if verbose:
             printer(f"dependencies:")
 
-        return await asyncio.gather(*[get_dependencies(requirement) for requirement in requirements])
+        return await asyncio.gather(
+            *[get_dependencies(requirement) for requirement in requirements]
+        )
 
     asyncio.run(gather_dependencies())
 
